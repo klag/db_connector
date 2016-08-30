@@ -59,7 +59,6 @@ public class NamedStatementParser
 		throws SQLException
 	{
 		String jdbcSql = parse( sql );
-
 		statement = connection.prepareStatement( jdbcSql );
 		Value v;
 		for( Entry< String, List< Integer > > entry : parameterPositions.entrySet() ) {

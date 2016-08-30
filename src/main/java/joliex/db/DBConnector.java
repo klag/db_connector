@@ -27,7 +27,6 @@ import java.io.PrintStream;
 import java.math.BigDecimal;
 import java.sql.Clob;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -42,9 +41,8 @@ import jolie.runtime.JavaService;
 import jolie.runtime.Value;
 import jolie.runtime.ValueVector;
 import jolie.runtime.embedding.RequestResponse;
-import com.mchange.v2.log.*;
 import com.mchange.v2.c3p0.DataSources;
-import java.util.logging.Level;
+import java.util.Properties;
 import javax.sql.DataSource;
 
 
@@ -53,6 +51,7 @@ import javax.sql.DataSource;
  * - Marco Montesi: connection string fix for Microsoft SQL Server (2009)
  * - Claudio Guidi: added support for SQLite (2013)
  * - Matthias Dieter Wallnöfer: added support for HSQLDB (2013)
+ * - Claudio Guidi: added c3p0 library for managin connection pools
  */
 @CanUseJars( {
 	"derby.jar", // Java DB - Embedded
@@ -150,7 +149,12 @@ public class DBConnector extends JavaService
 			// default
 			map.put("maxIdleTimeExcessConnections", 0 );     
 		}	
-					
+                
+                Properties p = new Properties(System.getProperties());
+                p.put("com.mchange.v2.log.MLog", "com.mchange.v2.log.FallbackMLog");
+                p.put("com.mchange.v2.log.FallbackMLog.DEFAULT_CUTOFF_LEVEL", request.getFirstChild("pool_settings").getFirstChild( "logLevel" ).strValue()); 
+		System.setProperties(p);
+                
 		return map;
 		
 	}
@@ -318,20 +322,34 @@ public class DBConnector extends JavaService
 		
 		Value resultValue = Value.create();
 		PreparedStatement stm = null;
+                Connection connection = null;
 		try {
 			synchronized( transactionMutex ) {
-				stm = new NamedStatementParser( ds_pooled.getConnection(), request.strValue(), request ).getPreparedStatement();
-				resultValue.setValue( stm.executeUpdate() );
+                           
+                            connection = ds_pooled.getConnection();
+                            connection.setAutoCommit( true );
+			    
+                            stm = new NamedStatementParser( connection, request.strValue(), request ).getPreparedStatement();
+                            resultValue.setValue( stm.executeUpdate() );
+
 			}
 		} catch( SQLException e ) {
 			throw createFaultException( e );
 		} finally {
 			if ( stm != null ) {
 				try {
-					stm.close();
+					stm.close();     
 				} catch( SQLException e ) {
 				}
 			}
+                        try {
+                            if ( connection != null && !connection.isClosed() ) {
+                                connection.close();
+                                
+                            }
+                        } catch( SQLException e ) {
+                            
+                        }
 		}
 		return resultValue;
 	}
@@ -530,7 +548,7 @@ public class DBConnector extends JavaService
 				try {
 					updateCount = -1;
 					stm = new NamedStatementParser( connection, statementValue.strValue(), statementValue ).getPreparedStatement();
-					if ( stm.execute() == true ) {
+                                        if ( stm.execute() == true ) {
 						updateCount = stm.getUpdateCount();
 						if ( updateCount == -1 ) {							
 							if ( statementValue.hasChildren( templateField ) ) {
@@ -538,11 +556,13 @@ public class DBConnector extends JavaService
 							} else {
 								resultSetToValueVector( stm.getResultSet(), currResultValue.getChildren( "row" ) );
 							}					
-							stm.getResultSet().close();
+							//stm.getResultSet().close();
+                                                        //System.out.println( stm.isClosed() );
 						}
-					}
+					} 
 					currResultValue.setValue( updateCount );
 					resultVector.add( currResultValue );
+                                    
 				} catch( SQLException e ) {
 					try {
 						connection.rollback();
@@ -553,7 +573,7 @@ public class DBConnector extends JavaService
 				} finally {
 					if ( stm != null ) {
 						try {
-							stm.close();
+                                                      	stm.close();
 						} catch( SQLException e ) {
 							throw createFaultException( e );
 						}
@@ -568,10 +588,12 @@ public class DBConnector extends JavaService
 			} finally {
 				try {
 					connection.setAutoCommit( true );
+                                        connection.close();
 				} catch( SQLException e ) {
 					throw createFaultException( e );
 				}
 			}
+                            
 		}
 		return resultValue;
 	}
@@ -595,9 +617,10 @@ public class DBConnector extends JavaService
 		
 		Value resultValue = Value.create();
 		PreparedStatement stm = null;
+                Connection connection = null;
 		
 		try {
-			Connection connection = ds_pooled.getConnection();
+			connection = ds_pooled.getConnection();
 			synchronized( transactionMutex ) {
 				stm = new NamedStatementParser( connection, request.strValue(), request ).getPreparedStatement();
 				ResultSet result = stm.executeQuery();				
@@ -617,6 +640,12 @@ public class DBConnector extends JavaService
 				} catch( SQLException e ) {
 				}
 			}
+                        try {
+                                if ( !connection.isClosed() ) {
+                                    connection.close();
+                                }
+                        } catch( SQLException e ) {
+                        }
 		}
 
 		return resultValue;
