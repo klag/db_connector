@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Fabrizio Montesi <famontesi@gmail.com>.
+ * Copyright (C) 2015 Fabrizio Montesi <guidiclaudio@gmail.com>.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -18,6 +19,11 @@
  */
 
 include "db_connector_iface.iol"
+
+embedded {
+Java:
+	"joliex.db.DBConnector" in Database
+}
 
 outputPort DBConnector {
 Interfaces: DBConnectorIface
